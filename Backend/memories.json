@@ -1,8 +1,12 @@
 {
   "test": [
-    "User plays guitar"
+    "User plays guitar",
+    "User enjoys Qawwali music, specifically Nusrat Fateh Ali Khan",
+    "User likes \"Sanson Ki Mala Pe\" by Nusrat Fateh Ali Khan",
+    "User is interested in playing \"Sanson Ki Mala Pe\" on the guitar"
   ],
   "test1": [
-    "User plays an unknown instrument"
+    "User plays an unknown instrument",
+    "No new information"
   ]
 }

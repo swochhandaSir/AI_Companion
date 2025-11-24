@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: ["https://aisathi.netlify.app/", "https://*.netlify.app/"], credentials: true }));
 app.use(express.json());
 
 const MEMORY_FILE = path.join(__dirname, "memories.json");
