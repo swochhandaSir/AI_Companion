@@ -126,7 +126,7 @@ ${memoryContext}`;
             {
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+                    "Authorization": `Bearer ${process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : ""}`
                 }
             }
         );
@@ -163,4 +163,11 @@ ${memoryContext}`;
     }
 });
 
-app.listen(3000, () => console.log("Server running on port 3000"));
+app.listen(3000, () => {
+    console.log("Server running on port 3000");
+    console.log("API Key Status:", process.env.GROQ_API_KEY ? "Present" : "Missing");
+    if (process.env.GROQ_API_KEY) {
+        console.log("API Key Length:", process.env.GROQ_API_KEY.length);
+        console.log("First 4 chars:", process.env.GROQ_API_KEY.substring(0, 4));
+    }
+});
