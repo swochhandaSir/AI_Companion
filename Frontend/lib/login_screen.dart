@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'config.dart';
 import 'chat_screen.dart';
 
 class LoginPage extends StatefulWidget {
@@ -31,15 +32,20 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       final response = await http.post(
-        Uri.parse("https://ai-companion-nyvp.onrender.com/$endpoint"),
+        Uri.parse("${Config.baseUrl}/$endpoint"),
         headers: {"Content-Type": "application/json"},
         body: json.encode({"username": username, "password": password}),
       );
 
       if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final avatar = data["avatar"] ?? "robot";
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => ChatPage(username: username)),
+          MaterialPageRoute(
+            builder: (context) =>
+                ChatPage(username: username, initialAvatar: avatar),
+          ),
         );
       } else {
         final data = json.decode(response.body);

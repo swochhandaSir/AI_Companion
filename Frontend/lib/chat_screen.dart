@@ -2,10 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'login_screen.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
+import 'config.dart';
 
 class ChatPage extends StatefulWidget {
   final String username;
-  const ChatPage({super.key, required this.username});
+  final String initialAvatar;
+  const ChatPage({
+    super.key,
+    required this.username,
+    required this.initialAvatar,
+  });
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -19,10 +27,107 @@ class _ChatPageState extends State<ChatPage> {
   TextEditingController controller = TextEditingController();
   bool _isLoading = false;
 
+  // Avatar State
+  late String _currentAvatar;
+  final List<String> _avatars = ["robot", "anime", "human", "abstract"];
+
+  // Voice Mode State
+  late stt.SpeechToText _speech;
+  late FlutterTts _flutterTts;
+  bool _isListening = false;
+  bool _isSpeaking = false;
+  bool _voiceModeEnabled = false; // Toggle for auto-read
+
+  @override
+  void initState() {
+    super.initState();
+    _currentAvatar = widget.initialAvatar;
+    _speech = stt.SpeechToText();
+    _flutterTts = FlutterTts();
+    _initTts();
+  }
+
+  Future<void> _updateAvatar(String newAvatar) async {
+    setState(() => _currentAvatar = newAvatar);
+    try {
+      await http.post(
+        Uri.parse("${Config.baseUrl}/update_avatar"),
+        headers: {"Content-Type": "application/json"},
+        body: json.encode({"username": widget.username, "avatar": newAvatar}),
+      );
+    } catch (e) {
+      print("Failed to update avatar: $e");
+    }
+  }
+
+  void _showAvatarDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Choose Your Companion"),
+        content: Container(
+          width: double.maxFinite,
+          child: GridView.builder(
+            shrinkWrap: true,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemCount: _avatars.length,
+            itemBuilder: (context, index) {
+              final avatar = _avatars[index];
+              return GestureDetector(
+                onTap: () {
+                  _updateAvatar(avatar);
+                  Navigator.pop(context);
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: _currentAvatar == avatar
+                        ? Border.all(color: Colors.pink, width: 3)
+                        : null,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(9),
+                    child: Image.asset(
+                      "assets/avatars/$avatar.png",
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _initTts() async {
+    await _flutterTts.setLanguage("en-US");
+    await _flutterTts.setPitch(1.0);
+    await _flutterTts.setSpeechRate(0.9); // Slightly slower for better clarity
+
+    _flutterTts.setStartHandler(() {
+      setState(() => _isSpeaking = true);
+    });
+
+    _flutterTts.setCompletionHandler(() {
+      setState(() => _isSpeaking = false);
+    });
+
+    _flutterTts.setErrorHandler((msg) {
+      setState(() => _isSpeaking = false);
+    });
+  }
+
   @override
   void dispose() {
     _scrollController.dispose();
     controller.dispose();
+    _flutterTts.stop();
     super.dispose();
   }
 
@@ -36,7 +141,49 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  Future<void> sendMessage() async {
+  Future<void> _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) {
+          if (val == 'done' || val == 'notListening') {
+            if (mounted) setState(() => _isListening = false);
+          }
+        },
+        onError: (val) {
+          if (mounted) setState(() => _isListening = false);
+        },
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) {
+            setState(() {
+              controller.text = val.recognizedWords;
+            });
+            if (val.finalResult && val.recognizedWords.isNotEmpty) {
+              setState(() => _isListening = false);
+              _speech.stop();
+              sendMessage(isVoice: true);
+            }
+          },
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Future<void> _speak(String text) async {
+    // Ensure mic is off before speaking
+    if (_isListening) {
+      await _speech.stop();
+      if (mounted) setState(() => _isListening = false);
+    }
+    await _flutterTts.speak(text);
+  }
+
+  Future<void> sendMessage({bool isVoice = false}) async {
     final msg = controller.text.trim();
     if (msg.isEmpty || _isLoading) return;
 
@@ -65,7 +212,7 @@ class _ChatPageState extends State<ChatPage> {
 
     try {
       final response = await http.post(
-        Uri.parse("https://ai-companion-nyvp.onrender.com/chat"),
+        Uri.parse("${Config.baseUrl}/chat"),
         headers: {"Content-Type": "application/json"},
         body: json.encode({
           "message": msg,
@@ -76,10 +223,15 @@ class _ChatPageState extends State<ChatPage> {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        final reply = data["reply"];
         setState(() {
-          messages.add({"role": "bot", "text": data["reply"]});
+          messages.add({"role": "bot", "text": reply});
           _isLoading = false;
         });
+
+        if (_voiceModeEnabled || isVoice) {
+          _speak(reply);
+        }
       } else {
         final errorData = json.decode(response.body);
         setState(() {
@@ -113,14 +265,28 @@ class _ChatPageState extends State<ChatPage> {
     return Scaffold(
       appBar: AppBar(
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
+            GestureDetector(
+              onTap: _showAvatarDialog,
+              child: Container(
+                padding: EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    "assets/avatars/$_currentAvatar.png",
+                    width: 32,
+                    height: 32,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        Icon(Icons.smart_toy, size: 20),
+                  ),
+                ),
               ),
-              child: Icon(Icons.smart_toy, size: 20),
             ),
             SizedBox(width: 12),
             Column(
@@ -143,6 +309,24 @@ class _ChatPageState extends State<ChatPage> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: Icon(Icons.palette, color: Colors.white),
+            tooltip: "Customize Avatar",
+            onPressed: _showAvatarDialog,
+          ),
+          IconButton(
+            icon: Icon(
+              _voiceModeEnabled ? Icons.volume_up : Icons.volume_off,
+              color: _voiceModeEnabled ? Colors.white : Colors.white70,
+            ),
+            tooltip: "Toggle Voice Mode",
+            onPressed: () {
+              setState(() {
+                _voiceModeEnabled = !_voiceModeEnabled;
+                if (!_voiceModeEnabled) _flutterTts.stop();
+              });
+            },
+          ),
           IconButton(
             icon: Icon(Icons.logout),
             tooltip: "Logout",
@@ -200,6 +384,23 @@ class _ChatPageState extends State<ChatPage> {
                 ),
                 child: Row(
                   children: [
+                    // Mic Button
+                    GestureDetector(
+                      onTap: _listen,
+                      child: Container(
+                        padding: EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _isListening ? Colors.redAccent : cream,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          _isListening ? Icons.mic : Icons.mic_none,
+                          color: _isListening ? Colors.white : darkPurple,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Container(
                         decoration: BoxDecoration(
@@ -209,7 +410,9 @@ class _ChatPageState extends State<ChatPage> {
                         child: TextField(
                           controller: controller,
                           decoration: InputDecoration(
-                            hintText: "Type your message...",
+                            hintText: _isListening
+                                ? "Listening..."
+                                : "Type a message...",
                             hintStyle: TextStyle(
                               color: darkPurple.withOpacity(0.5),
                             ),
