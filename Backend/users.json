@@ -1,10 +1,15 @@
 [
   {
     "username": "test",
-    "password": "test"
+    "password": "test",
+    "avatar": "anime"
   },
   {
     "username": "test1",
     "password": "test1"
+  },
+  {
+    "username": "test2",
+    "password": "test2"
   }
 ]

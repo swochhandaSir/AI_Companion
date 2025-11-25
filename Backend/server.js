@@ -4,10 +4,22 @@ const axios = require("axios");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-
 const app = express();
+
+
 app.use(cors({
-    origin: ["https://aisathi.netlify.app", "http://localhost:3000"],
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        // Allow any localhost origin or the deployed frontend
+        if (origin.startsWith("http://localhost") || origin === "https://aisathi.netlify.app") {
+            return callback(null, true);
+        }
+
+        const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+        return callback(new Error(msg), false);
+    },
     credentials: true
 }));
 app.use(express.json());
@@ -52,7 +64,7 @@ function saveMemories(memories) {
 app.post("/signup", (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: "Missing fields" });
-
+    console.log("Received signup request:", req.body);
     const users = loadUsers();
     if (users.find(u => u.username === username)) {
         return res.status(400).json({ error: "User already exists" });
@@ -67,11 +79,27 @@ app.post("/login", (req, res) => {
     const { username, password } = req.body;
     const users = loadUsers();
     const user = users.find(u => u.username === username && u.password === password);
-
+    console.log("Received login request:", req.body);
     if (user) {
-        res.json({ success: true });
+        res.json({ success: true, avatar: user.avatar || "robot" });
     } else {
         res.status(401).json({ error: "Invalid credentials" });
+    }
+});
+
+app.post("/update_avatar", (req, res) => {
+    const { username, avatar } = req.body;
+    if (!username || !avatar) return res.status(400).json({ error: "Missing fields" });
+
+    const users = loadUsers();
+    const userIndex = users.findIndex(u => u.username === username);
+
+    if (userIndex !== -1) {
+        users[userIndex].avatar = avatar;
+        saveUsers(users);
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: "User not found" });
     }
 });
 
@@ -100,7 +128,7 @@ GUIDELINES:
    - If Frustrated: Be understanding and validate their feelings. 🧡
 3. **Validation**: Always acknowledge their feelings first.
 4. **No Repetition**: Do NOT ask 'how are you' or 'how was your day' if already discussed. Flow naturally.
-5. **Style**: Keep it short, human-like, and casual. Use emojis to match the emotion.
+5. **Style**: Keep it short, human-like, and casual. Do NOT use emojis.
 6. **Memory Extraction**: If you learn a NEW permanent fact about the user (e.g., name, hobby, job, pet), add [MEMORY: fact] to the end of your response. Example: "Nice to meet you! [MEMORY: User's name is Alice]"
 
 ${memoryContext}`;
